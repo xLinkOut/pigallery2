@@ -51,6 +51,13 @@ export class AdminRouter {
         RenderingMWs.renderResult
     );
     app.get(
+        Config.Server.apiPath + '/admin/jobs/scheduled/progress/stream',
+        AuthenticationMWs.authenticate,
+        AuthenticationMWs.authorise(UserRoles.Admin),
+        AdminMWs.subscribeToSSE
+        // no RenderingMWs.renderResult — connection stays open
+    );
+    app.get(
         Config.Server.apiPath + '/admin/jobs/scheduled/progress',
         AuthenticationMWs.authenticate,
         AuthenticationMWs.authorise(UserRoles.Admin),

@@ -4,6 +4,9 @@ import {ObjectManagers} from '../../model/ObjectManagers';
 import {StatisticDTO} from '../../../common/entities/settings/StatisticDTO';
 import {MessengerRepository} from '../../model/messenger/MessengerRepository';
 import {JobStartDTO} from '../../../common/entities/job/JobDTO';
+import {SSEManager} from '../../model/SSEManager';
+import {SSEEventType, SSEJobProgressPayload} from '../../../common/entities/SSEEventDTO';
+import {UserRoles} from '../../../common/entities/UserDTO';
 
 export class AdminMWs {
   public static async loadStatistic(
@@ -196,6 +199,21 @@ export class AdminMWs {
         )
       );
     }
+  }
+
+  public static subscribeToSSE(req: Request, res: Response, _next: NextFunction): void {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-store, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const role = req.session?.context?.user?.role ?? UserRoles.Guest;
+    SSEManager.addClient(res, role);
+
+    // Send an initial snapshot so the client does not wait for the first change event
+    const progresses = ObjectManagers.getInstance().JobManager.getProgresses();
+    res.write(`data: ${JSON.stringify({type: SSEEventType.jobProgress, payload: {progresses} as SSEJobProgressPayload})}\n\n`);
   }
 
   public static getJobProgresses(
