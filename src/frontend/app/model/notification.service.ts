@@ -1,7 +1,9 @@
-import {Injectable} from '@angular/core';
+import {Injectable, OnDestroy} from '@angular/core';
+import {Subscription} from 'rxjs';
 import {ToastrService} from 'ngx-toastr';
 import {NetworkService} from './network/network.service';
 import {AuthenticationService} from './network/authentication.service';
+import {SseService} from './network/sse.service';
 import {NotificationDTO, NotificationType,} from '../../../common/entities/NotificationDTO';
 import {UserDTO, UserRoles} from '../../../common/entities/UserDTO';
 
@@ -10,7 +12,7 @@ export interface CountedNotificationDTO extends NotificationDTO {
 }
 
 @Injectable()
-export class NotificationService {
+export class NotificationService implements OnDestroy {
   options = {
     positionClass: 'toast-top-center',
     animate: 'flyLeft',
@@ -18,11 +20,13 @@ export class NotificationService {
   countedNotifications: CountedNotificationDTO[] = [];
   numberOfNotifications = 0;
   lastUser: UserDTO = null;
+  private notificationSseSub: Subscription | null = null;
 
   constructor(
       private toastr: ToastrService,
       private networkService: NetworkService,
-      private authService: AuthenticationService
+      private authService: AuthenticationService,
+      private sseService: SseService
   ) {
     this.authService.user.subscribe(() => {
       if (
@@ -32,8 +36,25 @@ export class NotificationService {
           this.authService.user.value.role >= UserRoles.Guest
       ) {
         this.getServerNotifications();
+        if (this.authService.isAuthorized(UserRoles.Admin)) {
+          this.setupSseNotifications();
+        }
       }
       this.lastUser = this.authService.user.value;
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.notificationSseSub?.unsubscribe();
+    this.notificationSseSub = null;
+  }
+
+  private setupSseNotifications(): void {
+    if (this.notificationSseSub !== null) {
+      return;
+    }
+    this.notificationSseSub = this.sseService.notification$.subscribe(payload => {
+      this.groupNotifications(payload.notifications);
     });
   }
 
