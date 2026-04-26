@@ -1,5 +1,7 @@
 import {NotificationDTO, NotificationType,} from '../../common/entities/NotificationDTO';
 import {Request} from 'express';
+import {SSEManager} from './SSEManager';
+import {SSEEventType, SSENotificationPayload} from '../../common/entities/SSEEventDTO';
 
 export class NotificationManager {
   public static notifications: NotificationDTO[] = [];
@@ -25,6 +27,9 @@ export class NotificationManager {
       };
     }
     NotificationManager.notifications.push(noti);
+    SSEManager.broadcast<SSENotificationPayload>(
+      {type: SSEEventType.notification, payload: {notifications: NotificationManager.notifications}}
+    );
   }
 
   public static warning(message: string, details?: unknown, req?: Request): void {
@@ -41,5 +46,8 @@ export class NotificationManager {
       };
     }
     NotificationManager.notifications.push(noti);
+    SSEManager.broadcast<SSENotificationPayload>(
+      {type: SSEEventType.notification, payload: {notifications: NotificationManager.notifications}}
+    );
   }
 }
