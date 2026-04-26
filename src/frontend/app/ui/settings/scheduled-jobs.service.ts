@@ -1,5 +1,5 @@
 import {EventEmitter, Injectable} from '@angular/core';
-import {BehaviorSubject} from 'rxjs';
+import {BehaviorSubject, Subscription} from 'rxjs';
 import {JobProgressDTO, JobProgressStates, OnTimerJobProgressDTO,} from '../../../../common/entities/job/JobProgressDTO';
 import {NetworkService} from '../../model/network/network.service';
 import {JobScheduleDTO} from '../../../../common/entities/job/JobScheduleDTO';
@@ -7,6 +7,8 @@ import {JobDTO, JobDTOUtils, JobStartDTO} from '../../../../common/entities/job/
 import {BackendtextService} from '../../model/backendtext.service';
 import {NotificationService} from '../../model/notification.service';
 import {DynamicConfig} from '../../../../common/entities/DynamicConfig';
+import {SseService} from '../../model/network/sse.service';
+import {SSEJobProgressPayload} from '../../../../common/entities/SSEEventDTO';
 
 @Injectable()
 export class ScheduledJobsService {
@@ -17,18 +19,20 @@ export class ScheduledJobsService {
   public availableMessengers: BehaviorSubject<string[]>;
   public jobStartingStopping: { [key: string]: boolean } = {};
   private subscribers = 0;
+  private sseSub: Subscription | null = null;
 
   constructor(
     private networkService: NetworkService,
     private notification: NotificationService,
-    private backendTextService: BackendtextService
+    private backendTextService: BackendtextService,
+    private sseService: SseService
   ) {
     this.progress = new BehaviorSubject({});
     this.availableJobs = new BehaviorSubject([]);
     this.availableMessengers = new BehaviorSubject([]);
   }
 
-  public  isValidJob(name: string): boolean {
+  public isValidJob(name: string): boolean {
     return !!this.availableJobs.value.find(j => j.Name === name);
   }
 
@@ -55,7 +59,6 @@ export class ScheduledJobsService {
   }
 
   public getDefaultConfig(jobName: string): Record<string, unknown> {
-
     const ct = this.getConfigTemplate(jobName);
     if (!ct) {
       return null;
@@ -123,34 +126,7 @@ export class ScheduledJobsService {
         '/admin/jobs/scheduled/progress'
       )
     );
-    for (const prg of Object.keys(prevPrg)) {
-      if (
-        // eslint-disable-next-line no-prototype-builtins
-        !(this.progress.value).hasOwnProperty(prg) ||
-        // state changed from running to finished
-        ((prevPrg[prg].state === JobProgressStates.running ||
-            prevPrg[prg].state === JobProgressStates.cancelling) &&
-          !(
-            this.progress.value[prg].state === JobProgressStates.running ||
-            this.progress.value[prg].state === JobProgressStates.cancelling
-          ))
-      ) {
-        this.onJobFinish.emit(prg);
-        if (this.progress.value[prg].state === JobProgressStates.failed) {
-          this.notification.warning(
-            $localize`Job failed` +
-            ': ' +
-            this.backendTextService.getJobName(prevPrg[prg].jobName)
-          );
-        } else {
-          this.notification.success(
-            $localize`Job finished` +
-            ': ' +
-            this.backendTextService.getJobName(prevPrg[prg].jobName)
-          );
-        }
-      }
-    }
+    this.detectJobFinish(prevPrg, this.progress.value);
   }
 
   protected isAnyJobRunning(): boolean {
@@ -172,6 +148,40 @@ export class ScheduledJobsService {
       this.getProgressPeriodically();
     }, repeatTime);
     this.loadProgress().catch(console.error);
+  }
+
+  private detectJobFinish(
+    prevPrg: Record<string, OnTimerJobProgressDTO>,
+    newPrg: Record<string, OnTimerJobProgressDTO>
+  ): void {
+    for (const prg of Object.keys(prevPrg)) {
+      if (
+        // eslint-disable-next-line no-prototype-builtins
+        !newPrg.hasOwnProperty(prg) ||
+        // state changed from running to finished
+        ((prevPrg[prg].state === JobProgressStates.running ||
+            prevPrg[prg].state === JobProgressStates.cancelling) &&
+          !(
+            newPrg[prg].state === JobProgressStates.running ||
+            newPrg[prg].state === JobProgressStates.cancelling
+          ))
+      ) {
+        this.onJobFinish.emit(prg);
+        if (newPrg[prg]?.state === JobProgressStates.failed) {
+          this.notification.warning(
+            $localize`Job failed` +
+            ': ' +
+            this.backendTextService.getJobName(prevPrg[prg].jobName)
+          );
+        } else {
+          this.notification.success(
+            $localize`Job finished` +
+            ': ' +
+            this.backendTextService.getJobName(prevPrg[prg].jobName)
+          );
+        }
+      }
+    }
   }
 
   private addDummyProgress(jobName: string, config: any): void {
@@ -196,10 +206,22 @@ export class ScheduledJobsService {
 
   private incSubscribers(): void {
     this.subscribers++;
-    this.getProgressPeriodically();
+    if (this.sseSub === null && 'EventSource' in window) {
+      this.sseSub = this.sseService.jobProgress$.subscribe((payload: SSEJobProgressPayload) => {
+        const prevPrg = this.progress.value;
+        this.progress.next(payload.progresses as Record<string, OnTimerJobProgressDTO>);
+        this.detectJobFinish(prevPrg, this.progress.value);
+      });
+    } else {
+      this.getProgressPeriodically();
+    }
   }
 
   private decSubscribers(): void {
     this.subscribers--;
+    if (this.subscribers === 0 && this.sseSub !== null) {
+      this.sseSub.unsubscribe();
+      this.sseSub = null;
+    }
   }
 }

@@ -1,6 +1,6 @@
 import {Injectable, OnDestroy} from '@angular/core';
 import {Observable, Subject, Subscription} from 'rxjs';
-import {filter} from 'rxjs/operators';
+import {filter, map} from 'rxjs/operators';
 import {AuthenticationService} from './authentication.service';
 import {UserRoles} from '../../../../common/entities/UserDTO';
 import {SSEEnvelope, SSEEventType, SSEJobProgressPayload, SSENotificationPayload} from '../../../../common/entities/SSEEventDTO';
@@ -18,11 +18,13 @@ export class SseService implements OnDestroy {
 
   readonly events: Observable<SSEEnvelope> = this.events$.asObservable();
   readonly jobProgress$: Observable<SSEJobProgressPayload> = this.events.pipe(
-    filter(e => e.type === SSEEventType.jobProgress)
-  ) as Observable<SSEJobProgressPayload>;
+    filter(e => e.type === SSEEventType.jobProgress),
+    map(e => e.payload as SSEJobProgressPayload)
+  );
   readonly notification$: Observable<SSENotificationPayload> = this.events.pipe(
-    filter(e => e.type === SSEEventType.notification)
-  ) as Observable<SSENotificationPayload>;
+    filter(e => e.type === SSEEventType.notification),
+    map(e => e.payload as SSENotificationPayload)
+  );
 
   constructor(private authService: AuthenticationService) {
     this.authSub = this.authService.user.subscribe(user => {
