@@ -3,6 +3,9 @@ import * as path from 'path';
 import {ProjectPath} from '../../ProjectPath';
 import {Config} from '../../../common/config/private/Config';
 import {JobProgressDTO, JobProgressStates,} from '../../../common/entities/job/JobProgressDTO';
+import {SSEManager} from '../SSEManager';
+import {SSEEventType, SSEJobProgressPayload} from '../../../common/entities/SSEEventDTO';
+import {UserRoles} from '../../../common/entities/UserDTO';
 
 export class JobProgressManager {
   private static readonly VERSION = 3;
@@ -39,6 +42,10 @@ export class JobProgressManager {
   onJobProgressUpdate(progress: JobProgressDTO): void {
     this.db.progresses[progress.HashName] = {progress, timestamp: Date.now()};
     this.delayedSave();
+    SSEManager.broadcast<SSEJobProgressPayload>(
+      {type: SSEEventType.jobProgress, payload: {progresses: this.Progresses}},
+      UserRoles.Admin
+    );
   }
 
   private async loadDB(): Promise<void> {
